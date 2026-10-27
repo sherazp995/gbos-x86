@@ -26,7 +26,9 @@ set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 JOBS=${2:-$(nproc)}
 VOL=gbos-ksrc
-C=/build/inputs/clang-r584948c
+# The clang that kernel/fetch_kernel_sources.sh puts in the volume (AOSP publishes r584948b, not the r584948c the kernel's
+# build.config.constants names; same LLVM 22.0.1). CLANG=/build/inputs/<dir> picks another one.
+C=${CLANG:-/build/inputs/clang-r584948b}
 
 # The base config: the one embedded in the shipped kernel, unless one is given.
 BASE=${1:-}
