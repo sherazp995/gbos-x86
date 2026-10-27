@@ -2,14 +2,15 @@
 # Fast deploy to a mounted gbOS86 stick: copies only the files that differ from usb/ (small scripts and patches), removes files the project no longer ships, verifies every copied file after a remount, ejects.
 # Takes seconds. It never touches the big/rarely changing items (super.img, firmware/, bootdisk.img; modules/ only when it is another kernel build's), the kernel
 # (EFI partition) or the stick's own gbos.cfg; use build.sh / the image for those.
-# Usage: tools/deploy_stick.sh [--no-eject] [VOLUME]      (VOLUME defaults to /Volumes/GBOS)
+# Usage: tools/deploy_stick.sh [--no-eject] [VOLUME]      (VOLUME defaults to /Volumes/GBOS on macOS, /run/media/$USER/GBOS on Linux)
 set -e
 EJECT=1; [ "$1" = "--no-eject" ] && { EJECT=0; shift; }
-VOL=${1:-/Volumes/GBOS}
+VOL=/Volumes/GBOS; [ -d "$VOL" ] || [ ! -d "/run/media/$USER/GBOS" ] || VOL=/run/media/$USER/GBOS
+VOL=${1:-$VOL}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 U=$ROOT/usb
 G=$VOL/gbos
-[ -d "$G" ] || { echo "no gbos folder on $VOL: plug the stick in (it mounts as /Volumes/GBOS)"; exit 1; }
+[ -d "$G" ] || { echo "no gbos folder on $VOL: plug the stick in (it mounts as /Volumes/GBOS on macOS, /run/media/$USER/GBOS on Linux)"; exit 1; }
 CHANGED=$(mktemp); trap 'rm -f "$CHANGED"' EXIT
 
 put() {  # put SRC DST(relative to gbos/): copy when different
@@ -17,7 +18,7 @@ put() {  # put SRC DST(relative to gbos/): copy when different
   if ! cmp -s "$1" "$G/$2" 2>/dev/null; then
     mkdir -p "$(dirname "$G/$2")"
     printf '  %s\n' "$2"
-    dd if="$1" of="$G/$2.part" bs=1m 2>/dev/null && mv -f "$G/$2.part" "$G/$2"
+    dd if="$1" of="$G/$2.part" bs=1048576 2>/dev/null && mv -f "$G/$2.part" "$G/$2"
     echo "$2" >> "$CHANGED"
   fi
 }
@@ -46,8 +47,12 @@ sync
 # verify from the disk, not the cache: remount (if it is a real volume), then compare every file we copied
 DEV=$(diskutil info "$VOL" 2>/dev/null | awk -F: '/Device Identifier/{gsub(/ /,"",$2); print $2}')
 WHOLE=$(diskutil info "$VOL" 2>/dev/null | awk -F: '/Part of Whole/{gsub(/ /,"",$2); print $2}')
+# Linux: udisks (the same service that mounted the stick under /run/media) remounts it at the same path, so $VOL stays valid.
+LDEV=; if [ -z "$DEV" ] && command -v udisksctl >/dev/null 2>&1; then LDEV=$(findmnt -no SOURCE "$VOL" 2>/dev/null || true); fi
 if [ -n "$DEV" ] && [ -s "$CHANGED" ]; then
   diskutil unmount "$VOL" >/dev/null && diskutil mount "$DEV" >/dev/null
+elif [ -n "$LDEV" ] && [ -s "$CHANGED" ]; then
+  udisksctl unmount -b "$LDEV" >/dev/null && udisksctl mount -b "$LDEV" >/dev/null
 fi
 BAD=0
 while read -r f; do
@@ -58,4 +63,9 @@ echo "verified $(wc -l < "$CHANGED" | tr -d ' ') file(s)"
 if [ $EJECT = 1 ] && [ -n "$WHOLE" ]; then
   sync; diskutil unmount "$VOL" >/dev/null 2>&1 || true
   diskutil eject "/dev/$WHOLE" | tail -1
+elif [ $EJECT = 1 ] && [ -n "$LDEV" ]; then
+  # every mounted partition of the stick (GBOS and EFI), then power it off
+  LWHOLE=/dev/$(lsblk -no PKNAME "$LDEV")
+  sync; for p in $(lsblk -lnpo NAME,MOUNTPOINT "$LWHOLE" | awk 'NF==2{print $1}'); do udisksctl unmount -b "$p" >/dev/null; done
+  udisksctl power-off -b "$LWHOLE" && echo "ejected $LWHOLE"
 fi
