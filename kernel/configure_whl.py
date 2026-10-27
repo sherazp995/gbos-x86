@@ -87,6 +87,13 @@ _y('PINCTRL_INTEL', 'PINCTRL_SUNRISEPOINT', 'PINCTRL_ICELAKE', 'PINCTRL_TIGERLAK
 _m('INTEL_ISH_HID', 'INTEL_ISH_HOST', 'HID_RMI', 'RMI4_CORE', 'RMI4_I2C', 'RMI4_SMB', 'RMI4_F11', 'RMI4_F12', 'RMI4_F30',
    'MOUSE_PS2_SYNAPTICS', 'MOUSE_ELAN_I2C', 'MOUSE_SYNAPTICS_I2C', 'HID_SENSOR_HUB', 'I2C_I801', 'I2C_SMBUS',
    'HID_ALPS', 'HID_GOOGLE_HAMMER', 'INPUT_SPARSEKMAP')
+# AMD Ryzen laptops (ThinkPad X13 Gen 2 AMD, Cezanne): the I2C touchpad and touchscreen get their IRQ from the AMDI0030 GPIO controller
+# ("i2c_hid_acpi: can't get irq" without it); the internal digital mic is on the Renoir/Cezanne audio coprocessor (1022:15e2);
+# AMD_PMC is what s2idle suspend needs on Ryzen. The digital mics of the newer Ryzen generations are on their own ACP drivers:
+# Yellow Carp/Rembrandt (Ryzen 6000, acp6x + yc machine) and Pink Sardine (Ryzen 7040 and later, acp63 + ps machine). Not tested on hardware.
+_y('PINCTRL_AMD')
+_m('SND_SOC_AMD_ACP', 'SND_SOC_AMD_RENOIR', 'SND_SOC_AMD_RENOIR_MACH', 'AMD_PMC',
+   'SND_SOC_AMD_ACP6x', 'SND_SOC_AMD_YC_MACH', 'SND_SOC_AMD_PS', 'SND_SOC_AMD_PS_MACH')
 # Accelerometer/gyro/ALS/hinge angle behind the Intel ISH sensor hub (2-in-1 auto-rotate): hid_sensor_hub loaded but no IIO sensor driver
 # was built (Latitude 5300 2-in-1 report: auto-rotate does not work).
 _y('IIO', 'IIO_BUFFER', 'IIO_TRIGGER', 'IIO_TRIGGERED_BUFFER', 'IIO_KFIFO_BUF')
