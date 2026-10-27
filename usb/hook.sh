@@ -42,6 +42,22 @@ if [ "${REQUIRE_AVX:-1}" != 0 ] && ! grep -qw avx ${CPUINFO:-/proc/cpuinfo}; the
   fail "this CPU has no AVX, so Google's init cannot run on it (not fixable by drivers). Power off, or type exit to try anyway (REQUIRE_AVX=0 in gbos.cfg skips this check)."
 fi
 
+# DEVICE_MODEL=auto (gbos.cfg): the laptop's own name from DMI, so one stick names every machine right. Lenovo keeps the model
+# in product_version ("ThinkPad X13 Gen 2a"; product_name is the type number "20XH005BUS"), the others in product_name.
+# Placeholder strings and an empty result leave Google's own name. Only characters that are safe in a property and an .rc line.
+if [ "$DEVICE_MODEL" = auto ]; then
+  DMI=${DMI:-/sys/class/dmi/id}
+  case "$(cat $DMI/sys_vendor 2>/dev/null)" in
+    LENOVO) DEVICE_MODEL=$(cat $DMI/product_version 2>/dev/null);;
+    *) DEVICE_MODEL=$(cat $DMI/product_name 2>/dev/null);;
+  esac
+  DEVICE_MODEL=$(echo "$DEVICE_MODEL" | tr -cd 'A-Za-z0-9 ._()+-' | sed 's/^ *//; s/ *$//')
+  case "$DEVICE_MODEL" in
+    ''|"To Be Filled By O.E.M."|"Default string"|"System Product Name"|"Not Specified"|"None") DEVICE_MODEL=;;
+  esac
+  log "hook: DEVICE_MODEL=auto -> '${DEVICE_MODEL:-Google default}'"
+fi
+
 # zram is a module here (=m in Google's config too); mmd_setup aborts without /sys/block/zram0.
 modprobe zram && log "hook: zram loaded" || log "hook: modprobe zram FAILED"
 
