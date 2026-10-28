@@ -205,6 +205,46 @@ chk "acer: headphone jack = Front Headphone" "$C" "<JackDev>HD-Audio Generic Fro
 nochk "acer: no jack device that does not exist" "$C" "Headphone Mic</JackDev>"
 chk "acer: volumes set" "$W/out-acer/gbos-gen/mixer_paths.xml" 'name="Speaker Playback Volume" value="87 87"'
 
+# ---- 3c. ThinkPad X13 Gen 2 AMD (Ryzen 7 PRO 5850U, ALC257), boot-3 logs: hook.sh has renamed card 1 (Generic_1) to PCH; the digital
+# mics are on the ACP's own card 2 "acp", and the HDMI PCMs are on card 0
+D=$(mk x13)
+cat > $D/cards <<'EOF'
+ 0 [Generic        ]: HDA-Intel - HD-Audio Generic
+                      HD-Audio Generic at 0xfd5c8000 irq 89
+ 1 [PCH            ]: HDA-Intel - HD-Audio Generic
+                      HD-Audio Generic at 0xfd5c0000 irq 90
+ 2 [acp            ]: acp - acp
+                      LENOVO-20XH005BUS-ThinkPadX13Gen2a
+EOF
+cat > $D/pcm <<'EOF'
+00-03: HDMI 0 : HDMI 0 : playback 1
+00-07: HDMI 1 : HDMI 1 : playback 1
+01-00: ALC257 Analog : ALC257 Analog : playback 1 : capture 1
+02-00: DMIC capture dmic-hifi-0 :  : capture 1
+EOF
+cat > $D/input <<'EOF'
+N: Name="HD-Audio Generic HDMI/DP,pcm=3"
+N: Name="HD-Audio Generic Mic"
+N: Name="HD-Audio Generic Headphone"
+EOF
+gen x13 gbos-gen PCH "HD-Audio Generic" >/dev/null
+C=$W/out-x13/gbos-gen/audio_config.xml
+wellformed "$C"
+chk "x13: playback on the analog card" "$C" "<PlaybackPCM>hw:PCH,0</PlaybackPCM>"
+chk "x13: internal mic = the ACP card's DMIC" "$C" "<CapturePCM>hw:acp,0</CapturePCM>"
+chk "x13: headset mic stays on the analog card" "$C" "<CaptureMixerElem>Capture</CaptureMixerElem>"
+chk "x13: headset mic jack" "$C" "<JackDev>HD-Audio Generic Mic</JackDev>"
+nochk "x13: no HDMI from another card" "$C" "<HDMI1>"
+# the main card is not in /proc/asound/cards (no card number): never borrow another card's DMIC, even card 0's
+D=$(mk x13nocard)
+cat > $D/cards <<'EOF2'
+ 0 [acp            ]: acp - acp
+                      LENOVO-20XH005BUS-ThinkPadX13Gen2a
+EOF2
+echo "00-00: DMIC capture dmic-hifi-0 :  : capture 1" > $D/pcm; : > $D/input
+gen x13nocard gbos-gen PCH "HD-Audio Generic" >/dev/null
+nochk "x13nocard: no other card's DMIC without the main card's number" "$W/out-x13nocard/gbos-gen/audio_config.xml" "hw:acp,"
+
 # ---- 4. SOF, combo jack, one HDMI, only DMIC16kHz ---------------------------------------------------------------------------
 gen sofcombo gbos-gen sofrt5682 sof-rt5682 >/dev/null
 C=$W/out-sofcombo/gbos-gen/audio_config.xml
@@ -310,6 +350,8 @@ chk "hook: calls the generator"           "$H" 'sh $G/audio/gen_config.sh'
 chk "hook: Surface mixer_paths only on the Surface (DMI), not on every sofsoundwire card" "$H" "grep -qi 'Surface Laptop.*7th Edition' /sys/class/dmi/id/product_name"
 chk "hook: generated config is copied into the tmpfs" "$H" 'cp -r $ASRC/. $A/$AC/'
 nochk "hook: no bind mount of the initramfs /tmp config" "$H" 'mount --bind $ASRC $A/$AC'
+chk "hook: generated audio_default.xml is copied into a tmpfs" "$H" 'cp $ADEF $HC/audio_default.xml'
+chk "hook: a card id ALSA made unique (Generic_1) is renamed to PCH" "$H" 'printf %s PCH 2>&1 > /sys/class/sound/card$_cn/id'
 sh -n "$H" && sh -n "$GEN" && ok "sh -n hook.sh gen_config.sh" || bad "syntax"
 
 # ---- 7. card selection: skip the GPU's HDMI audio, whatever it is called ----------------------------------------------------

@@ -579,6 +579,18 @@ if [ -f $G/audio/gbos-hda-pch/audio_config.xml ]; then
   mkdir -p /tmp/gbos-audio
   if [ -n "$CID" ] && [ "$CID" != PCH ]; then
     AC=gbos-gen
+    # dras never found the internal card under an id ALSA had to make unique: on AMD laptops the GPU's HDMI card takes "Generic" and
+    # the analog one becomes "Generic_1" ("AlsaCardManager::init succeeded but internal card not found" x100, primary audio stubbed).
+    # PCH is the one id dras is known to accept (Latitude 5300); the card id is writable in sysfs, so give the main card that id.
+    # No newline: id_store rejects any character but letters, digits, _ and - (EINVAL).
+    case "$CID" in *[!A-Za-z0-9]*)
+      _cn=$(echo "$CARD" | sed -n 's/^ *\([0-9][0-9]*\) .*/\1/p')
+      if [ -e /proc/asound/PCH ]; then log "hook: audio card id $CID kept (another card is already PCH)"
+      elif _err=$(printf %s PCH 2>&1 > /sys/class/sound/card$_cn/id); then
+        log "hook: audio card $_cn id $CID renamed to PCH"; CID=PCH
+      else log "hook: audio card $_cn id $CID: rename to PCH FAILED (${_err:-no message})"
+      fi;;
+    esac
     # gen_config.sh also remaps PCM numbers, the internal mic (SOF: the DMIC PCM) and the jack input devices to what this card has
     if [ -f $G/audio/gen_config.sh ] && AMSG=$(sh $G/audio/gen_config.sh $G/audio/gbos-hda-pch $G/audio/audio_default.xml /tmp/gbos-audio $AC "$CID" "$CNAME" 2>&1); then
       log "hook: audio $AMSG"
@@ -602,10 +614,18 @@ if [ -f $G/audio/gbos-hda-pch/audio_config.xml ]; then
   else
     ASRC=$G/audio/gbos-hda-pch; ADEF=$G/audio/audio_default.xml
   fi
+  # A generated audio_default.xml is in the initramfs /tmp too: bound from there, dras reads it as "(deleted)". Copy it into a tmpfs
+  # over hal_configs (the other files there stay bound to the originals), like the config directory above.
+  HC=/new/vendor/etc/data/hal_configs
+  if [ "$ADEF" != $G/audio/audio_default.xml ]; then
+    mkdir -p /tmp/vhal && mount --bind $HC /tmp/vhal && mount -t tmpfs -o mode=0755 tmpfs $HC \
+      && for f in /tmp/vhal/*; do n=${f##*/}; [ $n = audio_default.xml ] && continue; { [ -d $f ] && mkdir -p $HC/$n || touch $HC/$n; } && mount --bind $f $HC/$n; done \
+      && cp $ADEF $HC/audio_default.xml && chmod 0644 $HC/audio_default.xml && ADEF=
+  fi
   mkdir -p /tmp/vaudio && mount --bind $A /tmp/vaudio && mount -t tmpfs -o mode=0755 tmpfs $A \
     && for f in /tmp/vaudio/*; do n=${f##*/}; { [ -d $f ] && mkdir -p $A/$n || touch $A/$n; } && mount --bind $f $A/$n; done \
     && mkdir -p $A/$AC && cp -r $ASRC/. $A/$AC/ \
-    && mount --bind $ADEF /new/vendor/etc/data/hal_configs/audio_default.xml \
+    && { [ -z "$ADEF" ] || mount --bind $ADEF $HC/audio_default.xml; } \
     && log "hook: audio config $AC (card id ${CID:-none}, name ${CNAME:-none}) active"
 fi
 # apgetty (UART shell) has no UART configured here and crash-loops
