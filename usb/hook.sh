@@ -268,6 +268,14 @@ service gbos_audiodiag /system/bin/sh -c "sleep 60; cd /proc/asound; ( head -n 3
     group root audio
     seclabel u:r:shell:s0
     oneshot
+# Touchscreen responsiveness, 30 s after boot_completed for 60 s: report rate, timestamps and interrupts of the direct-touch devices only
+# (usb/touchdiag.sh -> logs/boot-N/touch.txt). Touch and drag on the screen during that minute.
+service gbos_touchdiag /system/bin/sh -c "sleep 30; sh /postinstall/gbos/touchdiag.sh $N"
+    user root
+    group root input
+    seclabel u:r:shell:s0
+    oneshot
+    disabled
 # A /dev/dri/card0 node with no DRM device behind it (i915 is card1) makes the Widevine HAL abort at start-up ("Failed to open
 # /dev/dri/card0: Permission denied"; Dell Inspiron 14 Plus 7440, issue 17). Point it at card1 and restart the HAL. Does nothing when
 # the kernel has a real card0.
@@ -291,6 +299,7 @@ on property:sys.boot_completed=1
     write /sys/kernel/tracing/tracing_on 0
     $TRUSTYSTOP
     start gbos_audiodiag
+    start gbos_touchdiag
     start gbos_devname
     start gbos_iptsd
     start gbos_wmsize
