@@ -11,6 +11,11 @@
 # Downloads (once, into the docker volume gbos-swsr): Android NDK r30 (~739 MB, dl.google.com), Mesa main b888682c (~400 MB, gitlab.freedesktop.org),
 # libdrm 2.4.133 (~10 MB), meson wraps for expat/zlib (a few MB, wrapdb.mesonbuild.com).
 # No LLVM: RADV compiles shaders with its own ACO compiler.
+# ANDROID_STRICT=false (default): Mesa's android-strict mode caps RADV at Vulkan 1.1 and hides every extension outside Android's
+# allow list. Google's desktop components need more: the USB camera HAL's video-call effects (vulkano) refuse a 1.1 device without
+# VK_KHR_image_format_list ("a restriction for the extension ext_image_drm_format_modifier was not met", ThinkPad X13 Gen 2 AMD),
+# and ANGLE runs the whole UI on whatever the driver reports (RADV reports 1.4 on GFX8 and newer). ANDROID_STRICT=true builds the
+# capped driver as vulkan.radv-strict.so (GPU_VULKAN=radv-strict in gbos.cfg).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${1:-$HERE/../../build/radv}; mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -21,7 +26,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca
 WORKDIR /w
 DOCKERFILE
 docker volume create gbos-swsr >/dev/null
-docker run --rm --platform linux/amd64 -e KEEP_BUILD="${KEEP_BUILD:-0}" -v gbos-swsr:/w -v "$HERE":/h:ro -v "$OUT":/out gbos-radvbuild sh -ec '
+docker run --rm --platform linux/amd64 -e KEEP_BUILD="${KEEP_BUILD:-0}" -e ANDROID_STRICT="${ANDROID_STRICT:-false}" -v gbos-swsr:/w -v "$HERE":/h:ro -v "$OUT":/out gbos-radvbuild sh -ec '
   cd /w
   NDK=/w/android-ndk-r30
   if [ ! -d $NDK ]; then
@@ -48,7 +53,8 @@ docker run --rm --platform linux/amd64 -e KEEP_BUILD="${KEEP_BUILD:-0}" -v gbos-
   MESA_TAG=b888682cba909c477f405e377cee881ca68e289d
   DRM_TAG=libdrm-2.4.133
   if [ -d mesa/.git ]; then
-    git -C mesa fetch -q --depth 1 origin $MESA_TAG
+    # the checkout below has no "origin" (git init + fetch by URL): fetch by URL again, and only when the pinned commit is missing
+    git -C mesa cat-file -e "$MESA_TAG^{commit}" 2>/dev/null || git -C mesa fetch -q --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git $MESA_TAG
     git -C mesa checkout -q -f $MESA_TAG
     git -C mesa clean -fdx
   else
@@ -95,13 +101,13 @@ EOF
   export PKG_CONFIG_PATH=/w/sys/lib/pkgconfig PKG_CONFIG_LIBDIR=/w/sys/lib/pkgconfig
   cd mesa
   python3 /h/patch_mesa.py
-  BUILD_KEY=$MESA_TAG-$DRM_TAG
+  BUILD_KEY=$MESA_TAG-$DRM_TAG-strict$ANDROID_STRICT
   if [ ! -f /w/mesa-build-key ] || [ "$(cat /w/mesa-build-key)" != "$BUILD_KEY" ]; then
     rm -rf /w/mesa-b
   fi
   [ "${KEEP_BUILD:-0}" = 1 ] || rm -rf /w/mesa-b
   [ -d /w/mesa-b ] || meson setup /w/mesa-b . --cross-file /w/cross.txt --prefix=/w/mesa-out --buildtype=release -Db_ndebug=true -Dstrip=true \
-    -Dc_args="-I/w/sys/include -I/w/sys/include/libdrm" -Dcpp_args="-I/w/sys/include -I/w/sys/include/libdrm" -Dplatforms=android -Dandroid-stub=true -Dplatform-sdk-version=$SDK -Dandroid-libbacktrace=disabled -Dcpp_rtti=false \
+    -Dc_args="-I/w/sys/include -I/w/sys/include/libdrm" -Dcpp_args="-I/w/sys/include -I/w/sys/include/libdrm" -Dplatforms=android -Dandroid-stub=true -Dplatform-sdk-version=$SDK -Dandroid-strict=$ANDROID_STRICT -Dandroid-libbacktrace=disabled -Dcpp_rtti=false \
     -Dvulkan-drivers=amd -Dgallium-drivers= -Dllvm=disabled -Dopengl=false -Dgles1=disabled -Dgles2=disabled -Degl=disabled -Dgbm=disabled -Dglx=disabled \
     -Dglvnd=disabled -Dvalgrind=disabled -Dlibunwind=disabled -Dlmsensors=disabled -Dshader-cache=enabled -Dbuild-tests=false -Dvulkan-layers= \
     -Dvideo-codecs= -Dgallium-va=disabled -Dxlib-lease=disabled -Dzstd=disabled -Dperfetto=false -Dmicrosoft-clc=disabled \
@@ -110,6 +116,7 @@ EOF
   ninja -C /w/mesa-b -j"$(nproc)" >/w/mesa-build.log 2>&1 || { tail -60 /w/mesa-build.log; exit 1; }
   find /w/mesa-b -name "libvulkan_radeon.so" -exec ls -l {} \;
   F=$(find /w/mesa-b -name "libvulkan_radeon.so" | head -n 1)
-  $TC/llvm-strip --strip-unneeded -o /out/vulkan.radv.so "$F"
-  ls -l /out/vulkan.radv.so; sha256sum /out/vulkan.radv.so
+  N=vulkan.radv.so; [ "$ANDROID_STRICT" = true ] && N=vulkan.radv-strict.so
+  $TC/llvm-strip --strip-unneeded -o /out/$N "$F"
+  ls -l /out/$N; sha256sum /out/$N
 '

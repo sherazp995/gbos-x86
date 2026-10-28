@@ -78,6 +78,12 @@ rv "amdgpu, no RADV on the stick" swiftshader
 rv "amdgpu + RADV on the stick" radv
 GPU_VULKAN=swiftshader; rv "forced SwiftShader" swiftshader
 GPU_VULKAN=radv; rv "forced RADV" radv; unset GPU_VULKAN
+strictmount() { grep -q "vulkan.radv-strict.so" "$T/mounts" 2>/dev/null && echo radv-strict || radvmount; }
+rs() { n=$((n+1)); runenable_quiet; r=$(strictmount)
+  if [ "$r" = "$2" ]; then echo "ok   vulkan: $1 -> $r"; else echo "FAIL vulkan: $1: wanted $2, got $r"; cat "$T/log"; fails=$((fails+1)); fi; }
+GPU_VULKAN=radv-strict; rs "radv-strict, not on the stick" swiftshader
+: > $G/patched/vulkan.radv-strict.so; rs "radv-strict on the stick" radv-strict; unset GPU_VULKAN
+rs "auto still picks the full RADV" radv
 mk "card0:nouveau" "$NV"; SYSFS=$T/sys; rv "other GPU driver, RADV present" swiftshader
 mk "card0:amdgpu" "$AMD"; SYSFS=$T/sys; FAKE_VK_SHA=deadbeef; rv "unknown vulkan.intel.so" none; unset FAKE_VK_SHA
 # vendor build.prop rewrite: in software-GPU mode Google's enable_color_pipeline=true must become false (drm_hwcomposer rejects every amdgpu plane otherwise)

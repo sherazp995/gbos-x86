@@ -157,6 +157,7 @@ gbos_gpu_vulkan() {
   case "${GPU_VULKAN:-auto}" in
     swiftshader) echo swiftshader; return 0;;
     radv) echo radv; return 0;;
+    radv-strict) echo radv-strict; return 0;;
   esac
   if [ -f "$G/patched/vulkan.radv.so" ] && gbos_gpu_cards | grep -q ' amdgpu$'; then echo radv; else echo swiftshader; fi
 }
@@ -168,7 +169,14 @@ gbos_gpu_enable() {
   gbos_gpu_bind "libgbm (amdgpu backend)" libgbm.amdgpu.so $V/lib64/libgbm.so $GBOS_LIBGBM_SHA
   # RADV (Mesa's AMD Vulkan driver, tools/radv-android/build.sh) when it is on the stick and an amdgpu card is bound; otherwise (or when it
   # cannot be bound) SwiftShader. GPU_VULKAN in gbos.cfg: auto (default), radv, swiftshader.
-  if [ "$(gbos_gpu_vulkan)" = radv ] && gbos_gpu_bind "Vulkan driver (RADV, AMD GPU)" vulkan.radv.so $V/lib64/hw/vulkan.intel.so $GBOS_VKINTEL_SHA; then :
+  # radv-strict: the same Mesa built with android-strict (Vulkan 1.1, Android's extension allow list only), the fallback when the
+  # full RADV misbehaves (tools/radv-android/build.sh with ANDROID_STRICT=true, copied to patched/vulkan.radv-strict.so).
+  case "$(gbos_gpu_vulkan)" in
+    radv) VKF=vulkan.radv.so; VKN="RADV, AMD GPU";;
+    radv-strict) VKF=vulkan.radv-strict.so; VKN="RADV android-strict, Vulkan 1.1, AMD GPU";;
+    *) VKF=;;
+  esac
+  if [ -n "$VKF" ] && gbos_gpu_bind "Vulkan driver ($VKN)" $VKF $V/lib64/hw/vulkan.intel.so $GBOS_VKINTEL_SHA; then :
   else gbos_gpu_bind "Vulkan driver (SwiftShader, CPU)" vulkan.swiftshader.so $V/lib64/hw/vulkan.intel.so $GBOS_VKINTEL_SHA || GPU_SW=0
   fi
 }
