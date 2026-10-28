@@ -31,6 +31,7 @@
 /usb/surface/iptsd
 /usb/surface/iptsd-check-device
 /usb/audio/tinymix
+/usb/audio/captest
 /usb/modroot/
 /usb/stage0.cpio
 /gatekeeper/libs/
