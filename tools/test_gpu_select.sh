@@ -12,7 +12,7 @@ fails=0; n=0
 log() { echo "$*" >> "$T/log"; }
 sleep() { :; }
 mount() { echo "$*" >> "$T/mounts"; return ${MOUNT_RC:-0}; }
-sha256sum() { case "$1" in */libminigbm_gralloc.so) echo "${FAKE_GRALLOC_SHA:-d48536951fd0e9643e71a5c8843e90833ce3e212e182782185470e2fbbfad673}  $1";; */libgbm.so) echo "${FAKE_LIBGBM_SHA:-64a0f2537a5917822cb3f538dc74229e7ccf4ca45a30265bb97f742678ba294e}  $1";; */vulkan.intel.so) echo "${FAKE_VK_SHA:-5c687450523ea9ed9e8d4d9cc98ef4fef6c8d592d46db4bf425ad571dc6f7c73}  $1";; *) command sha256sum "$@" 2>/dev/null || shasum -a 256 "$@";; esac; }
+sha256sum() { case "$1" in */libminigbm_gralloc.so) echo "${FAKE_GRALLOC_SHA:-d48536951fd0e9643e71a5c8843e90833ce3e212e182782185470e2fbbfad673}  $1";; */libgbm.so) echo "${FAKE_LIBGBM_SHA:-64a0f2537a5917822cb3f538dc74229e7ccf4ca45a30265bb97f742678ba294e}  $1";; */vulkan.intel.so) echo "${FAKE_VK_SHA:-5c687450523ea9ed9e8d4d9cc98ef4fef6c8d592d46db4bf425ad571dc6f7c73}  $1";; */internal_usb_camera_info.txtpb) echo "${FAKE_CAM_SHA:-b3f9739f419feed5dcd02d3d0451fc9904322b8babb3150f792475b1fdb0c105}  $1";; *) command sha256sum "$@" 2>/dev/null || shasum -a 256 "$@";; esac; }
 . "$T/block.sh"
 
 # fake sysfs: $1 = list of "cardN:driver" ("none" = unbound), $2 = list of "vendor:class" PCI devices
@@ -64,6 +64,20 @@ FAKE_LIBGBM_SHA=deadbeef; runenable "unknown libgbm.so (not essential)" 1 0 1 1;
 rm $G/patched/vulkan.swiftshader.so
 runenable "no SwiftShader HAL on the stick" 1 1 0 0
 : > $G/patched/vulkan.swiftshader.so; MOUNT_RC=1; runenable "bind fails" 1 1 1 0; unset MOUNT_RC
+
+# camera: the no-VA-API camera config is bound with the rest, only over the exact original, and never cancels software rendering
+# runcam NAME EXPECTED_BIND: expected 1 = internal_usb_camera_info bound
+runcam() {
+  n=$((n+1)); rm -f "$T/log" "$T/mounts"; GPU_SW=1; gbos_gpu_enable
+  c=0; grep -q 'internal_usb_camera_info.txtpb' "$T/mounts" 2>/dev/null && c=1
+  if [ $c = $2 ] && [ "$GPU_SW" = 1 ]; then echo "ok   camera: $1 (bound=$c sw=$GPU_SW)"
+  else echo "FAIL camera: $1: bound=$c sw=$GPU_SW"; cat "$T/log"; fails=$((fails+1)); fi
+}
+mkdir -p $NEWROOT/vendor/etc/camera; : > $NEWROOT/vendor/etc/camera/internal_usb_camera_info.txtpb
+runcam "no camera patch on the stick" 0
+: > $G/patched/internal_usb_camera_info.novaapi.txtpb
+runcam "camera patch, original matches" 1
+FAKE_CAM_SHA=deadbeef; runcam "unknown camera config (new Google build)" 0; unset FAKE_CAM_SHA
 
 # RADV: used when it is on the stick and amdgpu is bound; GPU_VULKAN forces either; falls back to SwiftShader when RADV cannot be bound
 radvmount() { grep -q "vulkan.radv.so" "$T/mounts" 2>/dev/null && echo radv || { grep -q "vulkan.swiftshader.so" "$T/mounts" 2>/dev/null && echo swiftshader || echo none; }; }

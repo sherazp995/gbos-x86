@@ -100,6 +100,7 @@ fi
 GBOS_GRALLOC_SHA=d48536951fd0e9643e71a5c8843e90833ce3e212e182782185470e2fbbfad673
 GBOS_LIBGBM_SHA=64a0f2537a5917822cb3f538dc74229e7ccf4ca45a30265bb97f742678ba294e
 GBOS_VKINTEL_SHA=5c687450523ea9ed9e8d4d9cc98ef4fef6c8d592d46db4bf425ad571dc6f7c73
+GBOS_CAMINFO_SHA=b3f9739f419feed5dcd02d3d0451fc9904322b8babb3150f792475b1fdb0c105
 # "cardN driver" per DRM card (connectors like card0-eDP-1 are skipped); driver "none" = no driver bound.
 gbos_gpu_cards() {
   for c in ${SYSFS:-/sys}/class/drm/card*; do
@@ -166,6 +167,11 @@ gbos_gpu_enable() {
   V=${NEWROOT:-/new}/vendor
   gbos_gpu_bind "gralloc (libminigbm_gralloc, amdgpu backend)" libminigbm_gralloc.amdgpu.so $V/lib64/libminigbm_gralloc.so $GBOS_GRALLOC_SHA || GPU_SW=0
   gbos_gpu_bind "libgbm (amdgpu backend)" libgbm.amdgpu.so $V/lib64/libgbm.so $GBOS_LIBGBM_SHA
+  # The USB camera HAL aborts when it opens a webcam on a GPU with no VA-API driver in the image (Google ships Intel's only): its
+  # config with use_hardware_jpeg_decoder: false, so MJPEG is decoded in software (tools/patch_camera_config.py). Not essential to
+  # drawing, so a failure here cancels nothing.
+  gbos_gpu_bind "camera JPEG decoder (software, no VA-API)" internal_usb_camera_info.novaapi.txtpb \
+    $V/etc/camera/internal_usb_camera_info.txtpb $GBOS_CAMINFO_SHA
   # RADV (Mesa's AMD Vulkan driver, tools/radv-android/build.sh) when it is on the stick and an amdgpu card is bound; otherwise (or when it
   # cannot be bound) SwiftShader. GPU_VULKAN in gbos.cfg: auto (default), radv, swiftshader.
   if [ "$(gbos_gpu_vulkan)" = radv ] && gbos_gpu_bind "Vulkan driver (RADV, AMD GPU)" vulkan.radv.so $V/lib64/hw/vulkan.intel.so $GBOS_VKINTEL_SHA; then :

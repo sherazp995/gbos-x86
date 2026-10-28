@@ -1,0 +1,307 @@
+use_hardware_jpeg_decoder: false
+face_detection_input_width: 320
+camera_modules {
+  key: "0408:4052" # Quanta YHVA-5
+  value {
+    lens_info {
+      available_focal_lengths: 1.769
+      minimum_focus_distance: 0.25
+      optimal_focus_distance: 0.5
+      available_apertures: 2.0
+    }
+    sensor_info {
+      physical_size {
+        width: 2.7288
+        height: 1.5498
+      }
+      pixel_array_size {
+        width: 1936
+        height: 1096
+      }
+      active_array {
+        left: 8
+        top: 8
+        right: 1928
+        bottom: 1088
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+  }
+}
+camera_modules {
+  key: "30c9:00fa" # LuxVisions BBF503N3B
+  value {
+    lens_info {
+      available_focal_lengths: 1.83
+      available_apertures: 2.0
+      minimum_focus_distance: 0.30
+      optimal_focus_distance: 0.50
+    }
+    sensor_info {
+      physical_size {
+        width: 2.92096
+        height: 2.1952
+      }
+      pixel_array_size {
+        width: 2608
+        height: 1960
+      }
+      active_array {
+        left: 8
+        top: 8
+        right: 2600
+        bottom: 1952
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+
+    variable_fps_range {
+      min: 10
+      max: 30
+    }
+  }
+}
+camera_modules {
+  key: "04f2:b84b" # Chicony C7FOF10-1
+  value {
+    lens_info {
+      available_focal_lengths: 1.462
+      minimum_focus_distance: 0.239
+      optimal_focus_distance: 0.5
+      available_apertures: 2.0
+    }
+    sensor_info {
+      physical_size {
+        width: 2.15936
+        height: 1.21856
+      }
+      pixel_array_size {
+        width: 1928
+        height: 1088
+      }
+      active_array {
+        left: 4
+        top: 10
+        right: 1924
+        bottom: 1090
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+  }
+}
+camera_modules {
+  key: "04f2:b890" # Chicony CKFP515
+  value {
+    lens_info {
+      available_focal_lengths: 1.87
+      minimum_focus_distance: 0.306
+      optimal_focus_distance: 0.5
+      available_apertures: 2.0
+    }
+    sensor_info {
+      physical_size {
+        width: 3.22301
+        height: 2.01773
+      }
+      pixel_array_size {
+        width: 2888
+        height: 1808
+      }
+      active_array {
+        left: 4
+        top: 4
+        right: 2884
+        bottom: 1804
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+
+    variable_fps_range {
+      min: 14
+      max: 30
+    }
+  }
+}
+camera_modules {
+  key: "0408:406a" # Quanta YHWM-2
+  value {
+    lens_info {
+      available_focal_lengths: 1.89
+      minimum_focus_distance: 0.31
+      optimal_focus_distance: 0.5
+      available_apertures: 2.0
+    }
+    sensor_info {
+      physical_size {
+        width: 3.223008
+        height: 2.017728
+      }
+      pixel_array_size {
+        width: 2888
+        height: 1808
+      }
+      active_array {
+        left: 0
+        top: 0
+        right: 2887
+        bottom: 1807
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+  }
+}
+camera_modules {
+  key: "3277:0099" # Shine FL225F-0B
+  value {
+    lens_info {
+      available_focal_lengths: 1.36
+      available_apertures: 2.0
+      minimum_focus_distance: 0.227
+      optimal_focus_distance: 0.5
+    }
+    sensor_info {
+      physical_size {
+        width: 2.15936
+        height: 1.21856
+      }
+      pixel_array_size {
+        width: 1928
+        height: 1096
+      }
+      active_array {
+        left: 4
+        top: 10
+        right: 1924
+        bottom: 1090
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+  }
+}
+camera_modules {
+  key: "5986:11ae" # BISON BNN755UBP-21A
+  value {
+    lens_info {
+      available_focal_lengths: 1.852
+      minimum_focus_distance: 0.2
+      optimal_focus_distance: 0.5
+      available_apertures: 2.0
+    }
+    sensor_info {
+      physical_size {
+        width: 2.912
+        height: 2.186
+      }
+      pixel_array_size {
+        width: 2600
+        height: 1952
+      }
+      active_array {
+        left: 4
+        top: 4
+        right: 2596
+        bottom: 1948
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+  }
+}
+camera_modules {
+  key: "174f:11b7" # AVC HAA-N1H8D3
+  value {
+    lens_info {
+      available_focal_lengths: 1.897
+      minimum_focus_distance: 0.3
+      optimal_focus_distance: 0.5
+      available_apertures: 2.0
+    }
+    sensor_info {
+      physical_size {
+        width: 2.92096
+        height: 2.1952
+      }
+      pixel_array_size {
+        width: 2608
+        height: 1960
+      }
+      active_array {
+        left: 8
+        top: 8
+        right: 2600
+        bottom: 1952
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+  }
+}
+camera_modules {
+  key: "04f2:b842" # Chicony CKFO518
+  value {
+    lens_info {
+      available_focal_lengths: 1.828
+      minimum_focus_distance: 0.3
+      optimal_focus_distance: 0.5
+      available_apertures: 2.0
+    }
+    sensor_info {
+      physical_size {
+        width: 2.92096
+        height: 2.1952
+      }
+      pixel_array_size {
+        width: 2624
+        height: 1976
+      }
+      active_array {
+        left: 16
+        top: 16
+        right: 2608
+        bottom: 1960
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+  }
+}
+camera_modules {
+  key: "30c9:013f" # LuxVisions BBF503N3I&J
+  value {
+    lens_info {
+      available_focal_lengths: 1.857
+      minimum_focus_distance: 0.3
+      optimal_focus_distance: 0.5
+      available_apertures: 2.0
+    }
+    sensor_info {
+      physical_size {
+        width: 2.92096
+        height: 2.1952
+      }
+      pixel_array_size {
+        width: 2608
+        height: 1960
+      }
+      active_array {
+        left: 8
+        top: 8
+        right: 2600
+        bottom: 1952
+      }
+    }
+    enable_face_detection: true
+    facing: FACING_FRONT
+
+    variable_fps_range {
+      min: 10
+      max: 30
+    }
+  }
+}
