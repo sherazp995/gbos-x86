@@ -42,6 +42,22 @@ if [ "${REQUIRE_AVX:-1}" != 0 ] && ! grep -qw avx ${CPUINFO:-/proc/cpuinfo}; the
   fail "this CPU has no AVX, so Google's init cannot run on it (not fixable by drivers). Power off, or type exit to try anyway (REQUIRE_AVX=0 in gbos.cfg skips this check)."
 fi
 
+# DEVICE_MODEL=auto (gbos.cfg): the laptop's own name from DMI, so one stick names every machine right. Lenovo keeps the model
+# in product_version ("ThinkPad X13 Gen 2a"; product_name is the type number "20XH005BUS"), the others in product_name.
+# Placeholder strings and an empty result leave Google's own name. Only characters that are safe in a property and an .rc line.
+if [ "$DEVICE_MODEL" = auto ]; then
+  DMI=${DMI:-/sys/class/dmi/id}
+  case "$(cat $DMI/sys_vendor 2>/dev/null)" in
+    LENOVO) DEVICE_MODEL=$(cat $DMI/product_version 2>/dev/null);;
+    *) DEVICE_MODEL=$(cat $DMI/product_name 2>/dev/null);;
+  esac
+  DEVICE_MODEL=$(echo "$DEVICE_MODEL" | tr -cd 'A-Za-z0-9 ._()+-' | sed 's/^ *//; s/ *$//')
+  case "$DEVICE_MODEL" in
+    ''|"To Be Filled By O.E.M."|"Default string"|"System Product Name"|"Not Specified"|"None") DEVICE_MODEL=;;
+  esac
+  log "hook: DEVICE_MODEL=auto -> '${DEVICE_MODEL:-Google default}'"
+fi
+
 # zram is a module here (=m in Google's config too); mmd_setup aborts without /sys/block/zram0.
 modprobe zram && log "hook: zram loaded" || log "hook: modprobe zram FAILED"
 
@@ -100,6 +116,7 @@ fi
 GBOS_GRALLOC_SHA=d48536951fd0e9643e71a5c8843e90833ce3e212e182782185470e2fbbfad673
 GBOS_LIBGBM_SHA=64a0f2537a5917822cb3f538dc74229e7ccf4ca45a30265bb97f742678ba294e
 GBOS_VKINTEL_SHA=5c687450523ea9ed9e8d4d9cc98ef4fef6c8d592d46db4bf425ad571dc6f7c73
+GBOS_CAMINFO_SHA=b3f9739f419feed5dcd02d3d0451fc9904322b8babb3150f792475b1fdb0c105
 # "cardN driver" per DRM card (connectors like card0-eDP-1 are skipped); driver "none" = no driver bound.
 gbos_gpu_cards() {
   for c in ${SYSFS:-/sys}/class/drm/card*; do
@@ -157,6 +174,7 @@ gbos_gpu_vulkan() {
   case "${GPU_VULKAN:-auto}" in
     swiftshader) echo swiftshader; return 0;;
     radv) echo radv; return 0;;
+    radv-strict) echo radv-strict; return 0;;
   esac
   if [ -f "$G/patched/vulkan.radv.so" ] && gbos_gpu_cards | grep -q ' amdgpu$'; then echo radv; else echo swiftshader; fi
 }
@@ -166,9 +184,21 @@ gbos_gpu_enable() {
   V=${NEWROOT:-/new}/vendor
   gbos_gpu_bind "gralloc (libminigbm_gralloc, amdgpu backend)" libminigbm_gralloc.amdgpu.so $V/lib64/libminigbm_gralloc.so $GBOS_GRALLOC_SHA || GPU_SW=0
   gbos_gpu_bind "libgbm (amdgpu backend)" libgbm.amdgpu.so $V/lib64/libgbm.so $GBOS_LIBGBM_SHA
+  # The USB camera HAL aborts when it opens a webcam on a GPU with no VA-API driver in the image (Google ships Intel's only): its
+  # config with use_hardware_jpeg_decoder: false, so MJPEG is decoded in software (tools/patch_camera_config.py). Not essential to
+  # drawing, so a failure here cancels nothing.
+  gbos_gpu_bind "camera JPEG decoder (software, no VA-API)" internal_usb_camera_info.novaapi.txtpb \
+    $V/etc/camera/internal_usb_camera_info.txtpb $GBOS_CAMINFO_SHA
   # RADV (Mesa's AMD Vulkan driver, tools/radv-android/build.sh) when it is on the stick and an amdgpu card is bound; otherwise (or when it
   # cannot be bound) SwiftShader. GPU_VULKAN in gbos.cfg: auto (default), radv, swiftshader.
-  if [ "$(gbos_gpu_vulkan)" = radv ] && gbos_gpu_bind "Vulkan driver (RADV, AMD GPU)" vulkan.radv.so $V/lib64/hw/vulkan.intel.so $GBOS_VKINTEL_SHA; then :
+  # radv-strict: the same Mesa built with android-strict (Vulkan 1.1, Android's extension allow list only), the fallback when the
+  # full RADV misbehaves (tools/radv-android/build.sh with ANDROID_STRICT=true, copied to patched/vulkan.radv-strict.so).
+  case "$(gbos_gpu_vulkan)" in
+    radv) VKF=vulkan.radv.so; VKN="RADV, AMD GPU";;
+    radv-strict) VKF=vulkan.radv-strict.so; VKN="RADV android-strict, Vulkan 1.1, AMD GPU";;
+    *) VKF=;;
+  esac
+  if [ -n "$VKF" ] && gbos_gpu_bind "Vulkan driver ($VKN)" $VKF $V/lib64/hw/vulkan.intel.so $GBOS_VKINTEL_SHA; then :
   else gbos_gpu_bind "Vulkan driver (SwiftShader, CPU)" vulkan.swiftshader.so $V/lib64/hw/vulkan.intel.so $GBOS_VKINTEL_SHA || GPU_SW=0
   fi
 }
@@ -268,6 +298,14 @@ service gbos_audiodiag /system/bin/sh -c "sleep 60; cd /proc/asound; ( head -n 3
     group root audio
     seclabel u:r:shell:s0
     oneshot
+# Touchscreen responsiveness, 30 s after boot_completed for 60 s: report rate, timestamps and interrupts of the direct-touch devices only
+# (usb/touchdiag.sh -> logs/boot-N/touch.txt). Touch and drag on the screen during that minute.
+service gbos_touchdiag /system/bin/sh -c "sleep 30; sh /postinstall/gbos/touchdiag.sh $N"
+    user root
+    group root input
+    seclabel u:r:shell:s0
+    oneshot
+    disabled
 # A /dev/dri/card0 node with no DRM device behind it (i915 is card1) makes the Widevine HAL abort at start-up ("Failed to open
 # /dev/dri/card0: Permission denied"; Dell Inspiron 14 Plus 7440, issue 17). Point it at card1 and restart the HAL. Does nothing when
 # the kernel has a real card0.
@@ -291,6 +329,7 @@ on property:sys.boot_completed=1
     write /sys/kernel/tracing/tracing_on 0
     $TRUSTYSTOP
     start gbos_audiodiag
+    start gbos_touchdiag
     start gbos_devname
     start gbos_iptsd
     start gbos_wmsize
@@ -396,6 +435,28 @@ service gbos_soft_gk /postinstall/gbos/soft_gk
     group system
     seclabel u:r:hal_gatekeeper_default:s0
     interface aidl android.hardware.gatekeeper.IGatekeeper/default
+
+# Which Android user the apps run as (headless system user mode, HSUM in gbos.cfg): logs/boot-N/users.txt
+service gbos_userdiag /system/bin/sh -c "sleep 20; ( echo ro.fw.mu.headless_system_user:; getprop ro.fw.mu.headless_system_user; echo is-headless-system-user-mode:; cmd user is-headless-system-user-mode; am get-current-user; pm list users; dumpsys user | head -n 80 ) > /postinstall/gbos/logs/boot-$N/users.txt 2>&1"
+    user root
+    group root
+    seclabel u:r:shell:s0
+    oneshot
+    disabled
+# HSUM=0 (user 0 as the normal user): user 0's home screen is then Google's login screen (LoginLauncherActivity), made for the
+# headless system user. After sign-in it "switches" to user 0, which is already current ("UserController: user #0 is already
+# the current user"), so the blank login window stays and the apps menu never opens (live boot 2026-11-07). Make the desktop
+# launcher user 0's home: the login screen claims HOME at a higher priority (4), so a preferred home alone is ignored
+# (set-home-activity "Success", HOME still resolved to it: boot 2026-11-07 #2). Disable only its home activity for user 0. Does nothing in Google's default mode. Log: logs/boot-N/hsum.txt
+service gbos_hsumhome /system/bin/sh -c "getprop ro.fw.mu.headless_system_user | grep -qx false || exit 0; sleep 5; ( pm disable --user 0 com.google.android.desktop.identity.login/.LoginLauncherActivity; cmd package set-home-activity --user 0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity; am force-stop --user 0 com.google.android.desktop.identity.login; am start --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME; cmd package query-activities --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME; cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME ) > /postinstall/gbos/logs/boot-$N/hsum.txt 2>&1"
+    user root
+    group root
+    seclabel u:r:shell:s0
+    oneshot
+    disabled
+on property:sys.boot_completed=1
+    start gbos_userdiag
+    start gbos_hsumhome
 
 # Trusty security VM (KeyMint/Gatekeeper TEE) as a plain KVM VM: no pKVM on this laptop.
 # vendor/build.prop's protected_vm.supported=1 is hidden (see below), so the launcher falls back
@@ -513,6 +574,27 @@ sed 's/^    start trusty_security_vm_launcher$/    # gbos: plain launcher disabl
 gbos_bind_patches
 [ -f $G/system_ext_manifest.xml ] && mount --bind $G/system_ext_manifest.xml /new/system_ext/etc/vintf/manifest.xml \
   && log "hook: Trusty KeyMint VINTF declarations hidden"
+# HSUM=0 in gbos.cfg: turn off Google's headless system user mode (system_ext/etc/build.prop has
+# ro.fw.mu.headless_system_user=true), so user 0 is the normal user instead of user 10 (Termux, for one, only runs as user 0).
+# Android fixes the mode when /data is first created and never converts it ("an OTA changing the default won't change the
+# already-decided mode", UserManagerService.isDefaultHeadlessSystemUserMode), so this applies only to empty data: live boots
+# (tmpfs) or an install whose GBOS_DATA has no users yet. Result: logs/boot-N/users.txt (gbos_userdiag).
+gbos_data_fresh() {
+  [ "$FROM" = nvme ] || return 0
+  _d=$(findfs LABEL=GBOS_DATA 2>/dev/null); [ -n "$_d" ] || return 1
+  mkdir -p /tmp/datachk && mount -t ext4 -o ro $_d /tmp/datachk 2>/dev/null || return 1
+  [ ! -e /tmp/datachk/system/users/userlist.xml ]; _r=$?
+  umount /tmp/datachk; return $_r
+}
+if [ "$HSUM" = 0 ] && [ -f /new/system_ext/etc/build.prop ]; then
+  if gbos_data_fresh; then
+    { grep -v '^ro.fw.mu.headless_system_user=' /new/system_ext/etc/build.prop; echo 'ro.fw.mu.headless_system_user=false'; } \
+      > /tmp/system_ext.build.prop && mount --bind /tmp/system_ext.build.prop /new/system_ext/etc/build.prop \
+      && log "hook: HSUM=0: headless system user mode off, user 0 is the normal user"
+  else
+    log "hook: HSUM=0 ignored: GBOS_DATA already has users, or could not be checked (Android does not convert existing users; wipe GBOS_DATA to switch)"
+  fi
+fi
 # StrongBox KeyMint (vendor APEX) needs the security chip too, and keystore2 aborts boot when a
 # declared KeyMint won't accept module info. Overlay /vendor/apex without that one APEX.
 mkdir -p /tmp/vapex && mount --bind /new/vendor/apex /tmp/vapex \
@@ -579,6 +661,18 @@ if [ -f $G/audio/gbos-hda-pch/audio_config.xml ]; then
   mkdir -p /tmp/gbos-audio
   if [ -n "$CID" ] && [ "$CID" != PCH ]; then
     AC=gbos-gen
+    # dras never found the internal card under an id ALSA had to make unique: on AMD laptops the GPU's HDMI card takes "Generic" and
+    # the analog one becomes "Generic_1" ("AlsaCardManager::init succeeded but internal card not found" x100, primary audio stubbed).
+    # PCH is the one id dras is known to accept (Latitude 5300); the card id is writable in sysfs, so give the main card that id.
+    # No newline: id_store rejects any character but letters, digits, _ and - (EINVAL).
+    case "$CID" in *[!A-Za-z0-9]*)
+      _cn=$(echo "$CARD" | sed -n 's/^ *\([0-9][0-9]*\) .*/\1/p')
+      if [ -e /proc/asound/PCH ]; then log "hook: audio card id $CID kept (another card is already PCH)"
+      elif _err=$(printf %s PCH 2>&1 > /sys/class/sound/card$_cn/id); then
+        log "hook: audio card $_cn id $CID renamed to PCH"; CID=PCH
+      else log "hook: audio card $_cn id $CID: rename to PCH FAILED (${_err:-no message})"
+      fi;;
+    esac
     # gen_config.sh also remaps PCM numbers, the internal mic (SOF: the DMIC PCM) and the jack input devices to what this card has
     if [ -f $G/audio/gen_config.sh ] && AMSG=$(sh $G/audio/gen_config.sh $G/audio/gbos-hda-pch $G/audio/audio_default.xml /tmp/gbos-audio $AC "$CID" "$CNAME" 2>&1); then
       log "hook: audio $AMSG"
@@ -602,10 +696,18 @@ if [ -f $G/audio/gbos-hda-pch/audio_config.xml ]; then
   else
     ASRC=$G/audio/gbos-hda-pch; ADEF=$G/audio/audio_default.xml
   fi
+  # A generated audio_default.xml is in the initramfs /tmp too: bound from there, dras reads it as "(deleted)". Copy it into a tmpfs
+  # over hal_configs (the other files there stay bound to the originals), like the config directory above.
+  HC=/new/vendor/etc/data/hal_configs
+  if [ "$ADEF" != $G/audio/audio_default.xml ]; then
+    mkdir -p /tmp/vhal && mount --bind $HC /tmp/vhal && mount -t tmpfs -o mode=0755 tmpfs $HC \
+      && for f in /tmp/vhal/*; do n=${f##*/}; [ $n = audio_default.xml ] && continue; { [ -d $f ] && mkdir -p $HC/$n || touch $HC/$n; } && mount --bind $f $HC/$n; done \
+      && cp $ADEF $HC/audio_default.xml && chmod 0644 $HC/audio_default.xml && ADEF=
+  fi
   mkdir -p /tmp/vaudio && mount --bind $A /tmp/vaudio && mount -t tmpfs -o mode=0755 tmpfs $A \
     && for f in /tmp/vaudio/*; do n=${f##*/}; { [ -d $f ] && mkdir -p $A/$n || touch $A/$n; } && mount --bind $f $A/$n; done \
     && mkdir -p $A/$AC && cp -r $ASRC/. $A/$AC/ \
-    && mount --bind $ADEF /new/vendor/etc/data/hal_configs/audio_default.xml \
+    && { [ -z "$ADEF" ] || mount --bind $ADEF $HC/audio_default.xml; } \
     && log "hook: audio config $AC (card id ${CID:-none}, name ${CNAME:-none}) active"
 fi
 # apgetty (UART shell) has no UART configured here and crash-loops

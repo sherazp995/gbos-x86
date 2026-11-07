@@ -10,7 +10,8 @@
 #   JOBS         parallel compile jobs (default: nproc)
 #
 # What it does:
-#   1. applies the patches (isa_emu, ashmem, i915 colours, SELinux, Surface, ALC269, SoundWire) and
+#   1. applies the patches (isa_emu, ashmem, i915 colours, SELinux, Surface, ALC269, SoundWire, BT LE buffer v2,
+#      AMD mic periods + high-pass) and
 #      KernelSU (kernel/kernelsu/apply.sh)
 #   2. writes the config (kernel/configure_whl.py --generic), the kernel command line and the
 #      initramfs path, then olddefconfig
@@ -26,7 +27,9 @@ set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 JOBS=${2:-$(nproc)}
 VOL=gbos-ksrc
-C=/build/inputs/clang-r584948c
+# The clang that kernel/fetch_kernel_sources.sh puts in the volume (AOSP publishes r584948b, not the r584948c the kernel's
+# build.config.constants names; same LLVM 22.0.1). CLANG=/build/inputs/<dir> picks another one.
+C=${CLANG:-/build/inputs/clang-r584948b}
 
 # The base config: the one embedded in the shipped kernel, unless one is given.
 BASE=${1:-}
@@ -66,7 +69,8 @@ export P=/host/kernel/isa_emu_patch
 sh \$P/apply.sh
 P=/host/kernel/ashmem_shim sh /host/kernel/ashmem_shim/apply.sh
 for s in i915_color_pipeline i915_edp_colorspace i915_edp_no_colorspace i915_edp_full_range \\
-         i915_ignore_gamma debug_selinux surface_sl7_sam alc269_hp_envy13_aq; do
+         i915_ignore_gamma debug_selinux surface_sl7_sam alc269_hp_envy13_aq bt_user_channel_le_bufsize_v2 \\
+         amd_pdm_min_periods amd_pdm_hpf; do
   sh \$P/\$s.sh > /dev/null
 done
 python3 \$P/sdw_sl7.py /build/src > /dev/null

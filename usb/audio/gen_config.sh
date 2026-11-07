@@ -55,6 +55,17 @@ if [ -n "$CARDNO" ] && [ -f "$ASOUND/pcm" ]; then
 fi
 [ -n "$DMIC" ] || DMIC=$DMIC16
 IMIC=${DMIC:-$ACP}
+# AMD Ryzen: the digital mics are not on the HDA card but on the audio coprocessor's own ASoC card (snd_rn_pci_acp3x / acp_pdm_mach,
+# card id "acp", "DMIC capture dmic-hifi-0"; ThinkPad X13 Gen 2 AMD). Without a DMIC of its own, use another card's DMIC capture PCM.
+IMIC_CID=$CID
+if [ -z "$DMIC" ] && [ -n "$CARDNO" ] && [ -f "$ASOUND/pcm" ]; then
+  OD=$(awk -v card="$CARDNO" '/^[0-9]+-[0-9]+:/ { split($1, a, "-"); if (a[1] + 0 == card + 0) next
+    if (tolower($0) ~ /dmic/ && $0 ~ / : capture [1-9]/ && $0 !~ / : playback [1-9]/) { print a[1] + 0, a[2] + 0; exit } }' "$ASOUND/pcm")
+  if [ -n "$OD" ]; then
+    OCID=$(sed -n "s/^ *${OD% *} \[\([^] ]*\) *\].*/\1/p" "$ASOUND/cards" | head -n 1)
+    [ -n "$OCID" ] && { IMIC_CID=$OCID; IMIC=${OD#* }; }
+  fi
+fi
 H1=; H2=; H3=; i=0
 for d in $HDMI; do i=$((i+1)); [ $i = 1 ] && H1=$d; [ $i = 2 ] && H2=$d; [ $i = 3 ] && H3=$d; done
 
@@ -73,9 +84,9 @@ fi
 
 # --- rewrite audio_config.xml ------------------------------------------------------------------------------------------
 if [ -n "$APB" ]; then
-  awk -v cid="$CID" -v cn="$CNAME" -v apb="$APB" -v spk="$SPK" -v acp="$ACP" -v imic="$IMIC" -v hpj="$HPJ" -v micj="$MICJ" \
+  awk -v cid="$CID" -v cn="$CNAME" -v apb="$APB" -v spk="$SPK" -v acp="$ACP" -v imic="$IMIC" -v icid="$IMIC_CID" -v hpj="$HPJ" -v micj="$MICJ" \
       -v h1="$H1" -v h2="$H2" -v h3="$H3" '
-    function setpcm(dev) { sub(/hw:[^<,]*,[0-9]*/, "hw:" cid "," dev) }
+    function setpcm(dev, c) { sub(/hw:[^<,]*,[0-9]*/, "hw:" (c != "" ? c : cid) "," dev) }
     function setjack(name) { sub(/>[^<]*</, ">" name "<") }
     /^[ \t]*<(Speaker|Headphone|InternalMic|Mic|HDMI1|HDMI2|HDMI3)>/ {
       sec = $0; sub(/^[ \t]*</, "", sec); sub(/>.*/, "", sec); buf = ""; drop = 0
@@ -89,7 +100,7 @@ if [ -n "$APB" ]; then
       if (sec == "HDMI1") setpcm(h1); if (sec == "HDMI2") setpcm(h2); if (sec == "HDMI3") setpcm(h3)
     }
     sec != "" && /<CapturePCM>/ {
-      if (sec == "InternalMic" && imic != "") setpcm(imic)
+      if (sec == "InternalMic" && imic != "") setpcm(imic, icid)
       if (sec == "Mic" && acp != "") setpcm(acp)
     }
     sec != "" && /<JackDev>/ {
@@ -115,4 +126,4 @@ sedi "$O/mixer_paths.xml" \
   -e '/name="Capture Switch"/{' -e p -e 's/name="Capture Switch"/name="Mic Capture Switch"/' -e p \
   -e 's/name="Mic Capture Switch"/name="Headset Mic Capture Switch"/' -e '}'
 
-echo "pcm map: card=${CARDNO:-?} analog-playback=${APB:--} analog-capture=${ACP:--} dmic=${DMIC:--} internal-mic=${IMIC:--} hdmi=${HDMI:--}; jacks: headphone='${HPJ:--}' mic='${MICJ:--}'"
+echo "pcm map: card=${CARDNO:-?} analog-playback=${APB:--} analog-capture=${ACP:--} dmic=${DMIC:--} internal-mic=${IMIC_CID}:${IMIC:--} hdmi=${HDMI:--}; jacks: headphone='${HPJ:--}' mic='${MICJ:--}'"

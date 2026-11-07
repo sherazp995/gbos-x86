@@ -12,3 +12,4 @@ T=/postinstall/gbos/audio/tinymix
   find /vendor /system /system_ext /product -maxdepth 7 \( -iname '*ucm*' -o -iname '*sof-soundwire*' \) 2>/dev/null | head -60
   echo "== /proc/asound/card0 tree"; ls -R /proc/asound/card0 2>/dev/null | head -80
 } > $L/mixer.txt 2>&1
+sh /postinstall/gbos/audio/capdiag.sh $N

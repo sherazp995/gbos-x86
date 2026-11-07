@@ -49,7 +49,7 @@ def build_tree(cfg):
     g = work / 'gbos'
     shutil.rmtree(g, ignore_errors=True); (g / 'gbos').mkdir(parents=True)
     G = g / 'gbos'
-    for f in ['install.sh', 'hook.sh', 'aidiag.sh', 'early_patch.sh', 'hwdetect.sh', 'apex_patch.sh', 'crossystem', 'libkm_compat.so',
+    for f in ['install.sh', 'hook.sh', 'aidiag.sh', 'touchdiag.sh', 'early_patch.sh', 'hwdetect.sh', 'apex_patch.sh', 'crossystem', 'libkm_compat.so',
               'system_ext_manifest.xml', 'soft_gk', 'bootdisk.img']:
         src = usb / f
         if src.exists(): shutil.copy(src, G / f)

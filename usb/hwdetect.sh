@@ -40,6 +40,29 @@ gbos_load_opmodes() {
   done
 }
 
+# Same request_module() gap for helpers a driver needs at probe time, then the device has to be probed again:
+#   ath11k/ath12k (Qualcomm WCN6855...): its QMI handle needs the QRTR socket family (net-pf-42), else "failed to initialize
+#   qmi handle: -517" and no wlan0 (ThinkPad X13 Gen 2 AMD, 17cb:1103).
+#   r8169: "no dedicated PHY driver found ..., maybe realtek.ko needs to be added to initramfs?" and probe fails (10ec:8168).
+#   ath10k/ath11k/ath12k allocate the michael_mic hash when they add the access point as a peer: without it every connection fails
+#   right after "Trying to authenticate" ("failed to allocate michael_mic shash: -2", Android shows "Authentication failed").
+gbos_load_helpers() {
+  want=
+  dmesg | grep -q 'failed to initialize qmi handle' && want="qrtr qrtr-mhi"
+  dmesg | grep -q 'ath1[012]k_pci ' && want="$want michael_mic"
+  want="$want $(dmesg | sed -n 's/.*maybe \([a-z0-9_-]*\)\.ko needs to be added to initramfs.*/\1/p' | sort -u)"
+  loaded=
+  for m in $want; do
+    grep -q "^$(echo $m | tr - _) " /proc/modules && continue
+    modprobe -q $m && { log "hwdetect: loaded $m (requested by a driver)"; loaded=1; } || log "hwdetect: modprobe $m FAILED"
+  done
+  [ -n "$loaded" ] || return 0
+  for s in $(dmesg | sed -n 's/.*\(ath1[12]k_pci\|r8169\) \([0-9a-f:.]*\): .*/\2/p' | sort -u); do
+    [ -e /sys/bus/pci/devices/$s/driver ] && continue
+    echo $s > /sys/bus/pci/drivers_probe 2>/dev/null && log "hwdetect: probed $s again"
+  done
+}
+
 # MODOPTS="module.param=value ..." (gbos.cfg): modprobe each named module with its parameters before the coldplug loads it
 # without. Done with `modprobe module param=value` (not /etc/modprobe.d: /etc is read-only under Android's init).
 # A module already loaded by stage0 keeps its parameters; that is logged. Built-in (non-module) parameters cannot be set here.
@@ -68,7 +91,7 @@ gbos_coldplug() {
   p=1; before=$(wc -l < /proc/modules)
   while [ $p -le 4 ]; do
     gbos_coldplug_pass
-    sleep 1; gbos_load_opmodes; mdev -s 2>/dev/null
+    sleep 1; gbos_load_opmodes; gbos_load_helpers; mdev -s 2>/dev/null
     now=$(wc -l < /proc/modules)
     log "hwdetect: coldplug pass $p: $now modules loaded (was $before)"
     [ $now -eq $before ] && break
