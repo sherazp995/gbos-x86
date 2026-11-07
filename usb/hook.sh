@@ -397,6 +397,28 @@ service gbos_soft_gk /postinstall/gbos/soft_gk
     seclabel u:r:hal_gatekeeper_default:s0
     interface aidl android.hardware.gatekeeper.IGatekeeper/default
 
+# Which Android user the apps run as (headless system user mode, HSUM in gbos.cfg): logs/boot-N/users.txt
+service gbos_userdiag /system/bin/sh -c "sleep 20; ( echo ro.fw.mu.headless_system_user:; getprop ro.fw.mu.headless_system_user; echo is-headless-system-user-mode:; cmd user is-headless-system-user-mode; am get-current-user; pm list users; dumpsys user | head -n 80 ) > /postinstall/gbos/logs/boot-$N/users.txt 2>&1"
+    user root
+    group root
+    seclabel u:r:shell:s0
+    oneshot
+    disabled
+# HSUM=0 (user 0 as the normal user): user 0's home screen is then Google's login screen (LoginLauncherActivity), made for the
+# headless system user. After sign-in it "switches" to user 0, which is already current ("UserController: user #0 is already
+# the current user"), so the blank login window stays and the apps menu never opens (live boot 2026-11-07). Make the desktop
+# launcher user 0's home: the login screen claims HOME at a higher priority (4), so a preferred home alone is ignored
+# (set-home-activity "Success", HOME still resolved to it: boot 2026-11-07 #2). Disable only its home activity for user 0. Does nothing in Google's default mode. Log: logs/boot-N/hsum.txt
+service gbos_hsumhome /system/bin/sh -c "getprop ro.fw.mu.headless_system_user | grep -qx false || exit 0; sleep 5; ( pm disable --user 0 com.google.android.desktop.identity.login/.LoginLauncherActivity; cmd package set-home-activity --user 0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity; am force-stop --user 0 com.google.android.desktop.identity.login; am start --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME; cmd package query-activities --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME; cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME ) > /postinstall/gbos/logs/boot-$N/hsum.txt 2>&1"
+    user root
+    group root
+    seclabel u:r:shell:s0
+    oneshot
+    disabled
+on property:sys.boot_completed=1
+    start gbos_userdiag
+    start gbos_hsumhome
+
 # Trusty security VM (KeyMint/Gatekeeper TEE) as a plain KVM VM: no pKVM on this laptop.
 # vendor/build.prop's protected_vm.supported=1 is hidden (see below), so the launcher falls back
 # to a non-protected VM; servicemanager starts it on demand for the KeyMint accessors.
@@ -513,6 +535,27 @@ sed 's/^    start trusty_security_vm_launcher$/    # gbos: plain launcher disabl
 gbos_bind_patches
 [ -f $G/system_ext_manifest.xml ] && mount --bind $G/system_ext_manifest.xml /new/system_ext/etc/vintf/manifest.xml \
   && log "hook: Trusty KeyMint VINTF declarations hidden"
+# HSUM=0 in gbos.cfg: turn off Google's headless system user mode (system_ext/etc/build.prop has
+# ro.fw.mu.headless_system_user=true), so user 0 is the normal user instead of user 10 (Termux, for one, only runs as user 0).
+# Android fixes the mode when /data is first created and never converts it ("an OTA changing the default won't change the
+# already-decided mode", UserManagerService.isDefaultHeadlessSystemUserMode), so this applies only to empty data: live boots
+# (tmpfs) or an install whose GBOS_DATA has no users yet. Result: logs/boot-N/users.txt (gbos_userdiag).
+gbos_data_fresh() {
+  [ "$FROM" = nvme ] || return 0
+  _d=$(findfs LABEL=GBOS_DATA 2>/dev/null); [ -n "$_d" ] || return 1
+  mkdir -p /tmp/datachk && mount -t ext4 -o ro $_d /tmp/datachk 2>/dev/null || return 1
+  [ ! -e /tmp/datachk/system/users/userlist.xml ]; _r=$?
+  umount /tmp/datachk; return $_r
+}
+if [ "$HSUM" = 0 ] && [ -f /new/system_ext/etc/build.prop ]; then
+  if gbos_data_fresh; then
+    { grep -v '^ro.fw.mu.headless_system_user=' /new/system_ext/etc/build.prop; echo 'ro.fw.mu.headless_system_user=false'; } \
+      > /tmp/system_ext.build.prop && mount --bind /tmp/system_ext.build.prop /new/system_ext/etc/build.prop \
+      && log "hook: HSUM=0: headless system user mode off, user 0 is the normal user"
+  else
+    log "hook: HSUM=0 ignored: GBOS_DATA already has users, or could not be checked (Android does not convert existing users; wipe GBOS_DATA to switch)"
+  fi
+fi
 # StrongBox KeyMint (vendor APEX) needs the security chip too, and keystore2 aborts boot when a
 # declared KeyMint won't accept module info. Overlay /vendor/apex without that one APEX.
 mkdir -p /tmp/vapex && mount --bind /new/vendor/apex /tmp/vapex \
